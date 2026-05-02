@@ -16,7 +16,7 @@ class Square:
         if self.is_apple:
             self.dir = [0, 0]
 
-    def draw(self, clr=SNAKE_CLR, size_factor=1.0):
+    def draw(self, clr=SNAKE_CLR, size_factor=1.0, all_round=False):
         x, y = self.pos[0], self.pos[1]
         ss, gs = SQUARE_SIZE, GAP_SIZE
 
@@ -33,28 +33,79 @@ class Square:
                                 (ox + eff // 5, oy + eff // 6, hl_w, hl_h))
             return
 
-        # Tail pieces and tapered segments: draw as a centered rounded square
-        if self.is_tail or size_factor < 1.0:
-            eff = max(2, int((ss - 2 * gs) * size_factor))
-            ox = x * ss + (ss - eff) // 2
-            oy = y * ss + (ss - eff) // 2
-            pygame.draw.rect(self.surface, clr, (ox, oy, eff, eff),
-                             border_radius=max(1, eff // 3))
+        # Subtle shading colours for a tube/bevel texture effect
+        light = tuple(min(255, c + 55) for c in clr)
+        dark  = tuple(max(0,   c - 45) for c in clr)
+        r = max(2, ss // 5)   # corner radius for body/taper segments
+
+        # Head: fully rounded square, centered in cell
+        if all_round:
+            rect = pygame.Rect(x * ss + gs, y * ss + gs, ss - 2 * gs, ss - 2 * gs)
+            pygame.draw.rect(self.surface, clr, rect,
+                             border_radius=max(2, ss // 4))
+            pygame.draw.line(self.surface, light,
+                             (rect.left + 2, rect.top + 2),
+                             (rect.right - 2, rect.top + 2), 1)
+            pygame.draw.line(self.surface, dark,
+                             (rect.left + 2, rect.bottom - 3),
+                             (rect.right - 2, rect.bottom - 3), 1)
             return
 
-        # Body squares — extend slightly into the next cell to avoid visual gaps
-        if self.dir == [-1, 0]:
-            pygame.draw.rect(self.surface, clr,
-                             (x * ss + gs, y * ss + gs, ss, ss - 2 * gs))
-        elif self.dir == [1, 0]:
-            pygame.draw.rect(self.surface, clr,
-                             (x * ss - gs, y * ss + gs, ss, ss - 2 * gs))
-        elif self.dir == [0, 1]:
-            pygame.draw.rect(self.surface, clr,
-                             (x * ss + gs, y * ss - gs, ss - 2 * gs, ss))
-        elif self.dir == [0, -1]:
-            pygame.draw.rect(self.surface, clr,
-                             (x * ss + gs, y * ss + gs, ss - 2 * gs, ss))
+        d = self.dir
+
+        # Horizontal movement: taper only the HEIGHT (lateral axis).
+        # Each segment keeps the full longitudinal extent so consecutive
+        # tapered segments stay visually connected.
+        if d in ([-1, 0], [1, 0]):
+            eff = max(2, int((ss - 2 * gs) * size_factor))
+            oy = y * ss + (ss - eff) // 2   # centred vertically
+            if d == [-1, 0]:
+                rect = pygame.Rect(x * ss + gs, oy, ss, eff)
+                pygame.draw.rect(self.surface, clr, rect,
+                                 border_top_left_radius=r,
+                                 border_bottom_left_radius=r,
+                                 border_top_right_radius=0,
+                                 border_bottom_right_radius=0)
+            else:
+                rect = pygame.Rect(x * ss - gs, oy, ss, eff)
+                pygame.draw.rect(self.surface, clr, rect,
+                                 border_top_right_radius=r,
+                                 border_bottom_right_radius=r,
+                                 border_top_left_radius=0,
+                                 border_bottom_left_radius=0)
+            if eff > 4:
+                pygame.draw.line(self.surface, light,
+                                 (rect.left, rect.top + 1),
+                                 (rect.right, rect.top + 1), 1)
+                pygame.draw.line(self.surface, dark,
+                                 (rect.left, rect.bottom - 2),
+                                 (rect.right, rect.bottom - 2), 1)
+
+        # Vertical movement: taper only the WIDTH (lateral axis).
+        elif d in ([0, 1], [0, -1]):
+            eff = max(2, int((ss - 2 * gs) * size_factor))
+            ox = x * ss + (ss - eff) // 2   # centred horizontally
+            if d == [0, 1]:
+                rect = pygame.Rect(ox, y * ss - gs, eff, ss)
+                pygame.draw.rect(self.surface, clr, rect,
+                                 border_bottom_left_radius=r,
+                                 border_bottom_right_radius=r,
+                                 border_top_left_radius=0,
+                                 border_top_right_radius=0)
+            else:
+                rect = pygame.Rect(ox, y * ss + gs, eff, ss)
+                pygame.draw.rect(self.surface, clr, rect,
+                                 border_top_left_radius=r,
+                                 border_top_right_radius=r,
+                                 border_bottom_left_radius=0,
+                                 border_bottom_right_radius=0)
+            if eff > 4:
+                pygame.draw.line(self.surface, light,
+                                 (rect.left + 1, rect.top),
+                                 (rect.left + 1, rect.bottom), 1)
+                pygame.draw.line(self.surface, dark,
+                                 (rect.right - 2, rect.top),
+                                 (rect.right - 2, rect.bottom), 1)
 
     def move(self, direction):
         self.dir = direction
@@ -222,8 +273,8 @@ class Snake:
         ss = SQUARE_SIZE
         d = head.dir
 
-        # Head body
-        head.draw(head_clr)
+        # Head body — fully rounded
+        head.draw(head_clr, all_round=True)
         if self.is_virtual_snake:
             return
 
