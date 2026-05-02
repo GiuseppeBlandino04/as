@@ -46,7 +46,7 @@ def draw_death_screen(surface, score, round_time, death_timer, won=False):
     time_surf = _font(28).render(f'Time: {mins:02d}:{secs:02d}', True, (160, 210, 255))
     surface.blit(time_surf, (WIDTH // 2 - time_surf.get_width() // 2, HEIGHT // 2 + 10))
 
-    secs_left = max(0, int(death_timer) + 1)
+    secs_left = max(0, int(death_timer) + 1)  # +1 so "0s" never shows before restart
     restart_surf = _font(22).render(
         f'Press M to restart  (auto-restart in {secs_left}s)', True, (170, 170, 255))
     surface.blit(restart_surf,
@@ -120,7 +120,7 @@ def play_game():
                 game_state = 'playing'
                 round_start = _time.time()
 
-            if game_state == 'dead':   # still dead — keep drawing
+            if game_state == 'dead':   # keep drawing until respawn
                 draw_screen(game_surface)
                 draw_grid(game_surface)
                 snake.render()
