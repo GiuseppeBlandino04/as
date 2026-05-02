@@ -166,6 +166,7 @@ class Snake:
         self.total_moves = 0
         self.won_game = False
         self.quit_game = False
+        self.invincible_timer = 0.0   # seconds of invincibility remaining
 
     # ------------------------------------------------------------------
     # Rendering
@@ -188,6 +189,15 @@ class Snake:
         for bomb in self.bombs:
             bomb.draw()
 
+        # While invincible, flash the body between normal and a gold tint
+        if self.invincible_timer > 0:
+            flash = math.sin(ticks * 0.03) > 0
+            body_clr = (255, 220, 50) if flash else SNAKE_CLR
+            head_clr = (255, 220, 50) if flash else HEAD_CLR
+        else:
+            body_clr = SNAKE_CLR
+            head_clr = HEAD_CLR
+
         # Body squares drawn back-to-front so head overlaps body
         n = len(self.squares)
         for i in range(n - 1, 0, -1):
@@ -201,19 +211,19 @@ class Snake:
             if self.is_virtual_snake:
                 sqr.draw(VIRTUAL_SNAKE_CLR, size_factor=sf)
             else:
-                sqr.draw(size_factor=sf)
+                sqr.draw(body_clr, size_factor=sf)
 
         # Head drawn last (on top)
-        self._draw_head(ticks)
+        self._draw_head(ticks, head_clr)
 
-    def _draw_head(self, ticks):
+    def _draw_head(self, ticks, head_clr=HEAD_CLR):
         head = self.head
         x, y = head.pos[0], head.pos[1]
         ss = SQUARE_SIZE
         d = head.dir
 
         # Head body
-        head.draw(HEAD_CLR)
+        head.draw(head_clr)
         if self.is_virtual_snake:
             return
 
@@ -625,9 +635,13 @@ class Snake:
         if self.quit_game:
             return 'quit'
 
-        # Bombs
+        # Tick down invincibility
+        if self.invincible_timer > 0:
+            self.invincible_timer = max(0.0, self.invincible_timer - dt)
+
+        # Bombs (invincibility shields against explosions too)
         bomb_result = self._process_bombs(dt)
-        if bomb_result == 'dead':
+        if bomb_result == 'dead' and self.invincible_timer <= 0:
             return 'dead'
 
         # AI
@@ -645,14 +659,15 @@ class Snake:
 
         self.total_moves += 1
 
-        # Death conditions
-        if self.hitting_self() or self.head.hitting_wall():
-            print("Snake is dead!")
-            return 'dead'
+        # Death conditions (skipped while invincible)
+        if self.invincible_timer <= 0:
+            if self.hitting_self() or self.head.hitting_wall():
+                print("Snake is dead!")
+                return 'dead'
 
-        if self.moves_without_eating >= MAX_MOVES_WITHOUT_EATING:
-            print("Snake got stuck!")
-            return 'stuck'
+            if self.moves_without_eating >= MAX_MOVES_WITHOUT_EATING:
+                print("Snake got stuck!")
+                return 'stuck'
 
         # Eat primary apple
         if self.eating_apple():
