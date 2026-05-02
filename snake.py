@@ -16,7 +16,7 @@ class Square:
         if self.is_apple:
             self.dir = [0, 0]
 
-    def draw(self, clr=SNAKE_CLR, size_factor=1.0, all_round=False):
+def draw(self, clr=SNAKE_CLR, size_factor=1.0, at_turn=False):
         x, y = self.pos[0], self.pos[1]
         ss, gs = SQUARE_SIZE, GAP_SIZE
 
@@ -30,82 +30,37 @@ class Square:
             hl_w = max(2, eff // 3)
             hl_h = max(1, eff // 4)
             pygame.draw.ellipse(self.surface, APPLE_HIGHLIGHT_CLR,
-                                (ox + eff // 5, oy + eff // 6, hl_w, hl_h))
+                               (ox + eff // 5, oy + eff // 6, hl_w, hl_h))
             return
 
-        # Subtle shading colours for a tube/bevel texture effect
-        light = tuple(min(255, c + 55) for c in clr)
-        dark  = tuple(max(0,   c - 45) for c in clr)
-        r = max(2, ss // 5)   # corner radius for body/taper segments
-
-        # Head: fully rounded square, centered in cell
-        if all_round:
-            rect = pygame.Rect(x * ss + gs, y * ss + gs, ss - 2 * gs, ss - 2 * gs)
-            pygame.draw.rect(self.surface, clr, rect,
-                             border_radius=max(2, ss // 4))
-            pygame.draw.line(self.surface, light,
-                             (rect.left + 2, rect.top + 2),
-                             (rect.right - 2, rect.top + 2), 1)
-            pygame.draw.line(self.surface, dark,
-                             (rect.left + 2, rect.bottom - 3),
-                             (rect.right - 2, rect.bottom - 3), 1)
+        # Tail pieces and tapered segments: draw as a centered rounded square
+        if self.is_tail or size_factor < 1.0:
+            eff = max(2, int((ss - 2 * gs) * size_factor))
+            ox = x * ss + (ss - eff) // 2
+            oy = y * ss + (ss - eff) // 2
+            pygame.draw.rect(self.surface, clr, (ox, oy, eff, eff),
+                        border_radius=max(1, eff // 3))
             return
 
-        d = self.dir
-
-        # Horizontal movement: taper only the HEIGHT (lateral axis).
-        # Each segment keeps the full longitudinal extent so consecutive
-        # tapered segments stay visually connected.
-        if d in ([-1, 0], [1, 0]):
-            eff = max(2, int((ss - 2 * gs) * size_factor))
-            oy = y * ss + (ss - eff) // 2   # centred vertically
-            if d == [-1, 0]:
-                rect = pygame.Rect(x * ss + gs, oy, ss, eff)
-                pygame.draw.rect(self.surface, clr, rect,
-                                 border_top_left_radius=r,
-                                 border_bottom_left_radius=r,
-                                 border_top_right_radius=0,
-                                 border_bottom_right_radius=0)
-            else:
-                rect = pygame.Rect(x * ss - gs, oy, ss, eff)
-                pygame.draw.rect(self.surface, clr, rect,
-                                 border_top_right_radius=r,
-                                 border_bottom_right_radius=r,
-                                 border_top_left_radius=0,
-                                 border_bottom_left_radius=0)
-            if eff > 4:
-                pygame.draw.line(self.surface, light,
-                                 (rect.left, rect.top + 1),
-                                 (rect.right, rect.top + 1), 1)
-                pygame.draw.line(self.surface, dark,
-                                 (rect.left, rect.bottom - 2),
-                                 (rect.right, rect.bottom - 2), 1)
-
-        # Vertical movement: taper only the WIDTH (lateral axis).
-        elif d in ([0, 1], [0, -1]):
-            eff = max(2, int((ss - 2 * gs) * size_factor))
-            ox = x * ss + (ss - eff) // 2   # centred horizontally
-            if d == [0, 1]:
-                rect = pygame.Rect(ox, y * ss - gs, eff, ss)
-                pygame.draw.rect(self.surface, clr, rect,
-                                 border_bottom_left_radius=r,
-                                 border_bottom_right_radius=r,
-                                 border_top_left_radius=0,
-                                 border_top_right_radius=0)
-            else:
-                rect = pygame.Rect(ox, y * ss + gs, eff, ss)
-                pygame.draw.rect(self.surface, clr, rect,
-                                 border_top_left_radius=r,
-                                 border_top_right_radius=r,
-                                 border_bottom_left_radius=0,
-                                 border_bottom_right_radius=0)
-            if eff > 4:
-                pygame.draw.line(self.surface, light,
-                                 (rect.left + 1, rect.top),
-                                 (rect.left + 1, rect.bottom), 1)
-                pygame.draw.line(self.surface, dark,
-                                 (rect.right - 2, rect.top),
-                                 (rect.right - 2, rect.bottom), 1)
+        # Body squares — extend slightly into the next cell to avoid visual gaps
+        # Slight corner radius at turns for smoother look, sharp for straight sections
+        corner_radius = 3 if at_turn else 0
+        if self.dir == [-1, 0]:
+            pygame.draw.rect(self.surface, clr,
+                       (x * ss + gs, y * ss + gs, ss, ss - 2 * gs),
+                       border_radius=corner_radius)
+        elif self.dir == [1, 0]:
+            pygame.draw.rect(self.surface, clr,
+                       (x * ss - gs, y * ss + gs, ss, ss - 2 * gs),
+                       border_radius=corner_radius)
+        elif self.dir == [0, 1]:
+            pygame.draw.rect(self.surface, clr,
+                       (x * ss + gs, y * ss - gs, ss - 2 * gs, ss),
+                       border_radius=corner_radius)
+        elif self.dir == [0, -1]:
+            pygame.draw.rect(self.surface, clr,
+                       (x * ss + gs, y * ss + gs, ss - 2 * gs, ss),
+                       border_radius=corner_radius)
 
     def move(self, direction):
         self.dir = direction
@@ -217,7 +172,6 @@ class Snake:
         self.total_moves = 0
         self.won_game = False
         self.quit_game = False
-        self.invincible_timer = 0.0   # seconds of invincibility remaining
 
     # ------------------------------------------------------------------
     # Rendering
@@ -240,19 +194,13 @@ class Snake:
         for bomb in self.bombs:
             bomb.draw()
 
-        # While invincible, flash the body between normal and a gold tint
-        if self.invincible_timer > 0:
-            flash = math.sin(ticks * 0.03) > 0
-            body_clr = (255, 220, 50) if flash else SNAKE_CLR
-            head_clr = (255, 220, 50) if flash else HEAD_CLR
-        else:
-            body_clr = SNAKE_CLR
-            head_clr = HEAD_CLR
-
-        # Body squares drawn back-to-front so head overlaps body
+# Body squares drawn back-to-front so head overlaps body
         n = len(self.squares)
         for i in range(n - 1, 0, -1):
             sqr = self.squares[i]
+            prev_sqr = self.squares[i - 1] if i > 0 else None
+            # Detect turn: direction differs from previous segment
+            at_turn = prev_sqr is not None and sqr.dir != prev_sqr.dir
             # last 5 squares taper: dist 0 = tip (thinnest), 4 = 5th from end
             dist = (n - 1) - i
             if dist < 5:
@@ -260,21 +208,21 @@ class Snake:
             else:
                 sf = 1.0
             if self.is_virtual_snake:
-                sqr.draw(VIRTUAL_SNAKE_CLR, size_factor=sf)
+                sqr.draw(VIRTUAL_SNAKE_CLR, size_factor=sf, at_turn=at_turn)
             else:
-                sqr.draw(body_clr, size_factor=sf)
+                sqr.draw(size_factor=sf, at_turn=at_turn)
 
         # Head drawn last (on top)
-        self._draw_head(ticks, head_clr)
+        self._draw_head(ticks)
 
-    def _draw_head(self, ticks, head_clr=HEAD_CLR):
+    def _draw_head(self, ticks):
         head = self.head
         x, y = head.pos[0], head.pos[1]
         ss = SQUARE_SIZE
         d = head.dir
 
-        # Head body — fully rounded
-        head.draw(head_clr, all_round=True)
+        # Head body
+        head.draw(HEAD_CLR)
         if self.is_virtual_snake:
             return
 
@@ -686,13 +634,9 @@ class Snake:
         if self.quit_game:
             return 'quit'
 
-        # Tick down invincibility
-        if self.invincible_timer > 0:
-            self.invincible_timer = max(0.0, self.invincible_timer - dt)
-
-        # Bombs (invincibility shields against explosions too)
+        # Bombs
         bomb_result = self._process_bombs(dt)
-        if bomb_result == 'dead' and self.invincible_timer <= 0:
+        if bomb_result == 'dead':
             return 'dead'
 
         # AI
@@ -710,15 +654,14 @@ class Snake:
 
         self.total_moves += 1
 
-        # Death conditions (skipped while invincible)
-        if self.invincible_timer <= 0:
-            if self.hitting_self() or self.head.hitting_wall():
-                print("Snake is dead!")
-                return 'dead'
+        # Death conditions
+        if self.hitting_self() or self.head.hitting_wall():
+            print("Snake is dead!")
+            return 'dead'
 
-            if self.moves_without_eating >= MAX_MOVES_WITHOUT_EATING:
-                print("Snake got stuck!")
-                return 'stuck'
+        if self.moves_without_eating >= MAX_MOVES_WITHOUT_EATING:
+            print("Snake got stuck!")
+            return 'stuck'
 
         # Eat primary apple
         if self.eating_apple():
