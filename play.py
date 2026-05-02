@@ -48,7 +48,7 @@ def draw_death_screen(surface, score, round_time, death_timer, won=False):
 
     secs_left = max(0, int(death_timer) + 1)  # +1 so "0s" never shows before restart
     restart_surf = _font(22).render(
-        f'Press M to restart  (auto-restart in {secs_left}s)', True, (170, 170, 255))
+        f'Press L to respawn (invincible 3s)  (auto-restart in {secs_left}s)', True, (170, 170, 255))
     surface.blit(restart_surf,
                  (WIDTH // 2 - restart_surf.get_width() // 2, HEIGHT // 2 + 65))
 
@@ -110,13 +110,15 @@ def play_game():
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     mainloop = False
-                elif event.type == pygame.KEYDOWN and event.key == pygame.K_m:
+                elif event.type == pygame.KEYDOWN and event.key == pygame.K_l:
                     snake.reset()
+                    snake.invincible_timer = 3.0
                     game_state = 'playing'
                     round_start = _time.time()
 
             if death_timer <= 0 and game_state == 'dead':
                 snake.reset()
+                snake.invincible_timer = 3.0
                 game_state = 'playing'
                 round_start = _time.time()
 
