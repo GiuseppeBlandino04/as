@@ -9,9 +9,15 @@ GAP_SIZE = 2  # Gap between adjacent squares
 SURFACE_CLR = (15, 15, 15)
 GRID_CLR = (20, 20, 20)
 SNAKE_CLR = (50, 255, 50)
-APPLE_CLR = (255, 255, 0)
-HEAD_CLR = (0, 150, 0)
+APPLE_CLR = (220, 30, 30)
+APPLE_HIGHLIGHT_CLR = (255, 180, 180)
+HEAD_CLR = (0, 180, 0)
 VIRTUAL_SNAKE_CLR = (255, 0, 0)
+TONGUE_CLR = (255, 50, 80)
+EYE_CLR = (240, 240, 240)
+PUPIL_CLR = (10, 10, 10)
+BOMB_CLR = (255, 130, 0)
+EXPLOSION_CLR = (255, 60, 0)
 
 # Game Settings
 FPS = 30  # Frames per second
