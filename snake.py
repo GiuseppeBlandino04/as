@@ -1,4 +1,5 @@
 import pygame
+import math
 from settings import *
 from copy import deepcopy
 from random import randrange
@@ -15,36 +16,45 @@ class Square:
         if self.is_apple:
             self.dir = [0, 0]
 
-    def draw(self, clr=SNAKE_CLR):
+    def draw(self, clr=SNAKE_CLR, size_factor=1.0):
         x, y = self.pos[0], self.pos[1]
         ss, gs = SQUARE_SIZE, GAP_SIZE
 
-        if self.dir == [-1, 0]:
-            if self.is_tail:
-                pygame.draw.rect(self.surface, clr, (x * ss + gs, y * ss + gs, ss - 2*gs, ss - 2*gs))
-            else:
-                pygame.draw.rect(self.surface, clr, (x * ss + gs, y * ss + gs, ss, ss - 2*gs))
-
-        if self.dir == [1, 0]:
-            if self.is_tail:
-                pygame.draw.rect(self.surface, clr, (x * ss + gs, y * ss + gs, ss - 2*gs, ss - 2*gs))
-            else:
-                pygame.draw.rect(self.surface, clr, (x * ss - gs, y * ss + gs, ss, ss - 2*gs))
-
-        if self.dir == [0, 1]:
-            if self.is_tail:
-                pygame.draw.rect(self.surface, clr, (x * ss + gs, y * ss + gs, ss - 2*gs, ss - 2*gs))
-            else:
-                pygame.draw.rect(self.surface, clr, (x * ss + gs, y * ss - gs, ss - 2*gs, ss))
-
-        if self.dir == [0, -1]:
-            if self.is_tail:
-                pygame.draw.rect(self.surface, clr, (x * ss + gs, y * ss + gs, ss - 2*gs, ss - 2*gs))
-            else:
-                pygame.draw.rect(self.surface, clr, (x * ss + gs, y * ss + gs, ss - 2*gs, ss))
-
         if self.is_apple:
-            pygame.draw.rect(self.surface, clr, (x * ss + gs, y * ss + gs, ss - 2*gs, ss - 2*gs))
+            eff = max(4, int((ss - 2 * gs) * size_factor))
+            ox = x * ss + (ss - eff) // 2
+            oy = y * ss + (ss - eff) // 2
+            pygame.draw.rect(self.surface, clr, (ox, oy, eff, eff),
+                             border_radius=max(1, eff // 3))
+            # Shiny highlight
+            hl_w = max(2, eff // 3)
+            hl_h = max(1, eff // 4)
+            pygame.draw.ellipse(self.surface, APPLE_HIGHLIGHT_CLR,
+                                (ox + eff // 5, oy + eff // 6, hl_w, hl_h))
+            return
+
+        # Tail pieces and tapered segments: draw as a centered rounded square
+        if self.is_tail or size_factor < 1.0:
+            eff = max(2, int((ss - 2 * gs) * size_factor))
+            ox = x * ss + (ss - eff) // 2
+            oy = y * ss + (ss - eff) // 2
+            pygame.draw.rect(self.surface, clr, (ox, oy, eff, eff),
+                             border_radius=max(1, eff // 3))
+            return
+
+        # Body squares — extend slightly into the next cell to avoid visual gaps
+        if self.dir == [-1, 0]:
+            pygame.draw.rect(self.surface, clr,
+                             (x * ss + gs, y * ss + gs, ss, ss - 2 * gs))
+        elif self.dir == [1, 0]:
+            pygame.draw.rect(self.surface, clr,
+                             (x * ss - gs, y * ss + gs, ss, ss - 2 * gs))
+        elif self.dir == [0, 1]:
+            pygame.draw.rect(self.surface, clr,
+                             (x * ss + gs, y * ss - gs, ss - 2 * gs, ss))
+        elif self.dir == [0, -1]:
+            pygame.draw.rect(self.surface, clr,
+                             (x * ss + gs, y * ss + gs, ss - 2 * gs, ss))
 
     def move(self, direction):
         self.dir = direction
@@ -52,11 +62,84 @@ class Square:
         self.pos[1] += self.dir[1]
 
     def hitting_wall(self):
-        if (self.pos[0] <= -1) or (self.pos[0] >= ROWS) or (self.pos[1] <= -1) or (self.pos[1] >= ROWS):
-            return True
-        else:
-            return False
+        return (self.pos[0] <= -1 or self.pos[0] >= ROWS or
+                self.pos[1] <= -1 or self.pos[1] >= ROWS)
 
+
+# ---------------------------------------------------------------------------
+# Bomb
+# ---------------------------------------------------------------------------
+
+class Bomb:
+    """A timed bomb that explodes after 3 seconds in a radius-1 area."""
+
+    def __init__(self, pos, surface):
+        self.pos = list(pos)
+        self.surface = surface
+        self.timer = 3.0          # seconds until explosion
+        self.exploded = False
+        self.done = False         # ready to be removed from the list
+        self._flash_timer = 0.35  # how long the explosion flash is visible
+
+    def update(self, dt):
+        """Advance state. Returns 'explode' on the frame it detonates."""
+        if not self.exploded:
+            self.timer -= dt
+            if self.timer <= 0:
+                self.exploded = True
+                return 'explode'
+        else:
+            self._flash_timer -= dt
+            if self._flash_timer <= 0:
+                self.done = True
+        return None
+
+    def get_explosion_positions(self):
+        bx, by = self.pos
+        return {(bx + dx, by + dy) for dx in range(-1, 2) for dy in range(-1, 2)}
+
+    def draw(self):
+        if self.done:
+            return
+        x, y = self.pos
+        ss = SQUARE_SIZE
+        cx, cy = x * ss + ss // 2, y * ss + ss // 2
+
+        if self.exploded:
+            fade = max(0.0, self._flash_timer / 0.35)
+            intensity = int(255 * fade)
+            for dx in range(-1, 2):
+                for dy in range(-1, 2):
+                    ex, ey = x + dx, y + dy
+                    if 0 <= ex < ROWS and 0 <= ey < ROWS:
+                        col = (min(255, intensity + 80), min(80, intensity // 4), 0)
+                        pygame.draw.rect(self.surface, col,
+                                         (ex * ss + 3, ey * ss + 3, ss - 6, ss - 6))
+        else:
+            progress = max(0.0, self.timer / 3.0)  # 1 → 0 as countdown runs
+            r = max(3, int(3 + 6 * (1 - progress)))
+            if self.timer < 1.0:
+                pulse = 0.6 + 0.4 * abs(math.sin(pygame.time.get_ticks() * 0.012))
+                clr = (255, int(80 * pulse), 0)
+            else:
+                clr = BOMB_CLR
+            pygame.draw.circle(self.surface, clr, (cx, cy), r)
+            pygame.draw.circle(self.surface, (20, 10, 0), (cx, cy), max(1, r - 2))
+            # Countdown arc around bomb
+            arc_r = r + 4
+            arc_rect = pygame.Rect(cx - arc_r, cy - arc_r, 2 * arc_r, 2 * arc_r)
+            start_a = math.pi / 2
+            end_a = math.pi / 2 + 2 * math.pi * (1 - progress)
+            try:
+                pygame.draw.arc(self.surface, (255, 220, 0), arc_rect,
+                                start_a, end_a, 2)
+            except Exception:
+                pass
+
+
+# ---------------------------------------------------------------------------
+# Snake
+# ---------------------------------------------------------------------------
 
 class Snake:
     def __init__(self, surface):
@@ -68,66 +151,216 @@ class Snake:
         self.score = 0
         self.moves_without_eating = 0
         self.apple = Square([randrange(ROWS), randrange(ROWS)], self.surface, is_apple=True)
+        self.extra_apples = []   # apples spawned via keybinds
+        self.bombs = []          # active bombs
 
         self.squares = []
         for pos in self.squares_start_pos:
             self.squares.append(Square(pos, self.surface))
 
         self.head = self.squares[0]
-        self.tail = self.squares[-1]
-        self.tail.is_tail = True
+        self.squares[-1].is_tail = True
 
         self.path = []
         self.is_virtual_snake = False
         self.total_moves = 0
         self.won_game = False
+        self.quit_game = False
 
-    def draw(self):
-        self.apple.draw(APPLE_CLR)
-        self.head.draw(HEAD_CLR)
-        for sqr in self.squares[1:]:
-            if self.is_virtual_snake:
-                sqr.draw(VIRTUAL_SNAKE_CLR)
+    # ------------------------------------------------------------------
+    # Rendering
+    # ------------------------------------------------------------------
+
+    def render(self):
+        """Draw the snake, apples and bombs onto the surface."""
+        ticks = pygame.time.get_ticks()
+
+        # Primary apple — pulse in/out
+        pulse = 1.0 + 0.18 * math.sin(ticks * 0.004)
+        self.apple.draw(APPLE_CLR, size_factor=pulse)
+
+        # Extra apples — each slightly offset in phase
+        for i, ea in enumerate(self.extra_apples):
+            ep = 1.0 + 0.18 * math.sin(ticks * 0.004 + i * 0.7)
+            ea.draw(APPLE_CLR, size_factor=ep)
+
+        # Bombs
+        for bomb in self.bombs:
+            bomb.draw()
+
+        # Body squares drawn back-to-front so head overlaps body
+        n = len(self.squares)
+        for i in range(n - 1, 0, -1):
+            sqr = self.squares[i]
+            # last 5 squares taper: dist 0 = tip (thinnest), 4 = 5th from end
+            dist = (n - 1) - i
+            if dist < 5:
+                sf = 0.15 + 0.85 * (dist / 5.0)
             else:
-                sqr.draw()
+                sf = 1.0
+            if self.is_virtual_snake:
+                sqr.draw(VIRTUAL_SNAKE_CLR, size_factor=sf)
+            else:
+                sqr.draw(size_factor=sf)
+
+        # Head drawn last (on top)
+        self._draw_head(ticks)
+
+    def _draw_head(self, ticks):
+        head = self.head
+        x, y = head.pos[0], head.pos[1]
+        ss = SQUARE_SIZE
+        d = head.dir
+
+        # Head body
+        head.draw(HEAD_CLR)
+        if self.is_virtual_snake:
+            return
+
+        cx = x * ss + ss // 2
+        cy = y * ss + ss // 2
+
+        # ---- Tongue (waggling, intermittent) ----
+        if math.sin(ticks * 0.008) > 0.2:
+            tlen = ss // 2 + 4
+            flen = 5
+            fspread = 3
+            waggle = int(2 * math.sin(ticks * 0.025))
+            gs = GAP_SIZE
+            if d == [-1, 0]:
+                base = (cx - gs - 1, cy)
+                tip = (cx - tlen, cy)
+                pygame.draw.line(self.surface, TONGUE_CLR, base, tip, 1)
+                pygame.draw.line(self.surface, TONGUE_CLR, tip,
+                                 (tip[0] - flen, tip[1] - fspread + waggle), 1)
+                pygame.draw.line(self.surface, TONGUE_CLR, tip,
+                                 (tip[0] - flen, tip[1] + fspread + waggle), 1)
+            elif d == [1, 0]:
+                base = (cx + gs + 1, cy)
+                tip = (cx + tlen, cy)
+                pygame.draw.line(self.surface, TONGUE_CLR, base, tip, 1)
+                pygame.draw.line(self.surface, TONGUE_CLR, tip,
+                                 (tip[0] + flen, tip[1] - fspread + waggle), 1)
+                pygame.draw.line(self.surface, TONGUE_CLR, tip,
+                                 (tip[0] + flen, tip[1] + fspread + waggle), 1)
+            elif d == [0, -1]:
+                base = (cx, cy - gs - 1)
+                tip = (cx, cy - tlen)
+                pygame.draw.line(self.surface, TONGUE_CLR, base, tip, 1)
+                pygame.draw.line(self.surface, TONGUE_CLR, tip,
+                                 (tip[0] - fspread + waggle, tip[1] - flen), 1)
+                pygame.draw.line(self.surface, TONGUE_CLR, tip,
+                                 (tip[0] + fspread + waggle, tip[1] - flen), 1)
+            elif d == [0, 1]:
+                base = (cx, cy + gs + 1)
+                tip = (cx, cy + tlen)
+                pygame.draw.line(self.surface, TONGUE_CLR, base, tip, 1)
+                pygame.draw.line(self.surface, TONGUE_CLR, tip,
+                                 (tip[0] - fspread + waggle, tip[1] + flen), 1)
+                pygame.draw.line(self.surface, TONGUE_CLR, tip,
+                                 (tip[0] + fspread + waggle, tip[1] + flen), 1)
+
+        # ---- Eyes ----
+        eye_r = max(2, ss // 10)
+        pupil_r = max(1, eye_r // 2)
+        fo = ss // 4   # offset towards the front
+        so = ss // 4   # lateral offset
+
+        if d == [-1, 0]:
+            e1, e2 = (cx - fo, cy - so), (cx - fo, cy + so)
+            pd = (-1, 0)
+        elif d == [1, 0]:
+            e1, e2 = (cx + fo, cy - so), (cx + fo, cy + so)
+            pd = (1, 0)
+        elif d == [0, -1]:
+            e1, e2 = (cx - so, cy - fo), (cx + so, cy - fo)
+            pd = (0, -1)
+        elif d == [0, 1]:
+            e1, e2 = (cx - so, cy + fo), (cx + so, cy + fo)
+            pd = (0, 1)
+        else:
+            return
+
+        for ep in (e1, e2):
+            pygame.draw.circle(self.surface, EYE_CLR, ep, eye_r)
+            pygame.draw.circle(self.surface, PUPIL_CLR,
+                               (ep[0] + pd[0], ep[1] + pd[1]), pupil_r)
+
+    # ------------------------------------------------------------------
+    # Direction / input
+    # ------------------------------------------------------------------
 
     def set_direction(self, direction):
-        if direction == 'left':
-            if not self.dir == [1, 0]:
-                self.dir = [-1, 0]
-                self.turns[self.head.pos[0], self.head.pos[1]] = self.dir
-        if direction == "right":
-            if not self.dir == [-1, 0]:
-                self.dir = [1, 0]
-                self.turns[self.head.pos[0], self.head.pos[1]] = self.dir
-        if direction == "up":
-            if not self.dir == [0, 1]:
-                self.dir = [0, -1]
-                self.turns[self.head.pos[0], self.head.pos[1]] = self.dir
-        if direction == "down":
-            if not self.dir == [0, -1]:
-                self.dir = [0, 1]
-                self.turns[self.head.pos[0], self.head.pos[1]] = self.dir
+        if direction == 'left' and self.dir != [1, 0]:
+            self.dir = [-1, 0]
+            self.turns[self.head.pos[0], self.head.pos[1]] = self.dir
+        elif direction == 'right' and self.dir != [-1, 0]:
+            self.dir = [1, 0]
+            self.turns[self.head.pos[0], self.head.pos[1]] = self.dir
+        elif direction == 'up' and self.dir != [0, 1]:
+            self.dir = [0, -1]
+            self.turns[self.head.pos[0], self.head.pos[1]] = self.dir
+        elif direction == 'down' and self.dir != [0, -1]:
+            self.dir = [0, 1]
+            self.turns[self.head.pos[0], self.head.pos[1]] = self.dir
 
     def handle_events(self):
+        """Process pygame events. Sets quit_game flag instead of calling pygame.quit()."""
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                pygame.quit()
+                self.quit_game = True
+                return
 
-            # Set snake direction using keyboard
+            # Directional control
             keys = pygame.key.get_pressed()
-
             if keys[pygame.K_LEFT]:
                 self.set_direction('left')
-
             elif keys[pygame.K_RIGHT]:
                 self.set_direction('right')
-
             elif keys[pygame.K_UP]:
                 self.set_direction('up')
-
             elif keys[pygame.K_DOWN]:
                 self.set_direction('down')
+
+            # Experimental keybinds (on key-down only)
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_c:
+                    self.spawn_extra_apples(1)
+                elif event.key == pygame.K_v:
+                    self.spawn_extra_apples(10)
+                elif event.key == pygame.K_b:
+                    self.spawn_extra_apples(200)
+                elif event.key == pygame.K_n:
+                    self.spawn_bomb()
+
+    # ------------------------------------------------------------------
+    # Experimental spawn helpers
+    # ------------------------------------------------------------------
+
+    def spawn_extra_apples(self, count):
+        for _ in range(count):
+            pos = self._random_free_pos()
+            if pos:
+                self.extra_apples.append(
+                    Square(list(pos), self.surface, is_apple=True))
+
+    def spawn_bomb(self):
+        pos = self._random_free_pos()
+        if pos:
+            self.bombs.append(Bomb(list(pos), self.surface))
+
+    def _random_free_pos(self):
+        apple_pos = list(self.apple.pos)
+        extra_positions = [list(a.pos) for a in self.extra_apples]
+        bomb_positions = [list(b.pos) for b in self.bombs]
+        for _ in range(ROWS * ROWS * 4):
+            pos = [randrange(ROWS), randrange(ROWS)]
+            if (self.is_position_free(pos)
+                    and pos != apple_pos
+                    and pos not in extra_positions
+                    and pos not in bomb_positions):
+                return pos
+        return None
 
     def move(self):
         for j, sqr in enumerate(self.squares):
@@ -167,9 +400,12 @@ class Snake:
                 return True
 
     def generate_apple(self):
-        self.apple = Square([randrange(ROWS), randrange(ROWS)], self.surface, is_apple=True)
-        if not self.is_position_free(self.apple.pos):
-            self.generate_apple()
+        pos = self._random_free_pos()
+        if pos:
+            self.apple = Square(pos, self.surface, is_apple=True)
+        else:
+            # Grid is full — just keep the current apple position
+            pass
 
     def eating_apple(self):
         if self.head.pos == self.apple.pos and not self.is_virtual_snake and not self.won_game:
@@ -244,6 +480,8 @@ class Snake:
         v_snake.apple.pos = deepcopy(self.apple.pos)
         v_snake.apple.is_apple = True
         v_snake.is_virtual_snake = True
+        v_snake.extra_apples = []
+        v_snake.bombs = []
 
         return v_snake
 
@@ -345,36 +583,84 @@ class Snake:
         # Snake couldn't find a path and will probably die
         print('No available path, snake in danger!')
 
-    def update(self):
-        self.handle_events()
+    def _process_bombs(self, dt):
+        """Advance all bombs; return 'dead' if head is in explosion radius."""
+        for bomb in self.bombs[:]:
+            result = bomb.update(dt)
+            if result == 'explode':
+                exp = bomb.get_explosion_positions()
+                # Head in blast → instant death
+                if tuple(self.head.pos) in exp:
+                    return 'dead'
+                # Cut tail from the first piece inside the blast radius
+                cut_index = None
+                for i in range(1, len(self.squares)):
+                    if tuple(self.squares[i].pos) in exp:
+                        cut_index = i
+                        break
+                if cut_index is not None:
+                    self.squares = self.squares[:cut_index]
+                    self.squares[-1].is_tail = True
+            if bomb.done:
+                self.bombs.remove(bomb)
+        return None
 
+    def _eat_extra_apples(self):
+        """Eat any extra apples at the head position. Returns number eaten."""
+        count = 0
+        for apple in self.extra_apples[:]:
+            if self.head.pos == apple.pos:
+                self.extra_apples.remove(apple)
+                self.moves_without_eating = 0
+                self.score += 1
+                count += 1
+        return count
+
+    def update(self, dt):
+        """
+        Advance game logic by dt seconds.
+        Returns: None (normal), 'quit', 'dead', 'stuck', 'won'
+        """
+        self.handle_events()
+        if self.quit_game:
+            return 'quit'
+
+        # Bombs
+        bomb_result = self._process_bombs(dt)
+        if bomb_result == 'dead':
+            return 'dead'
+
+        # AI
         self.path = self.set_path()
         if self.path:
             self.go_to(self.path[0])
 
-        self.draw()
         self.move()
 
-        if self.score == ROWS * ROWS - INITIAL_SNAKE_LENGTH:  # If snake wins the game
+        # Win condition
+        if self.score >= ROWS * ROWS - INITIAL_SNAKE_LENGTH:
             self.won_game = True
-
-            print("Snake won the game after {} moves"
-                  .format(self.total_moves))
-
-            pygame.time.wait(1000 * WAIT_SECONDS_AFTER_WIN)
-            return 1
+            print("Snake won the game after {} moves".format(self.total_moves))
+            return 'won'
 
         self.total_moves += 1
 
+        # Death conditions
         if self.hitting_self() or self.head.hitting_wall():
-            print("Snake is dead, trying again..")
-            self.is_dead = True
-            self.reset()
+            print("Snake is dead!")
+            return 'dead'
 
-        if self.moves_without_eating == MAX_MOVES_WITHOUT_EATING:
-            self.is_dead = True
-            print("Snake got stuck, trying again..")
-            self.reset()
+        if self.moves_without_eating >= MAX_MOVES_WITHOUT_EATING:
+            print("Snake got stuck!")
+            return 'stuck'
 
+        # Eat primary apple
         if self.eating_apple():
             self.add_square()
+
+        # Eat extra apples
+        eaten = self._eat_extra_apples()
+        for _ in range(eaten):
+            self.add_square()
+
+        return None
